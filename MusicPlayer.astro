@@ -1,0 +1,64 @@
+---
+import WidgetLayout from "./WidgetLayout.astro";
+import MusicPlayerClient from "./MusicPlayerClient.svelte";
+
+// 网易云歌单 ID（改成你自己的即可）
+const PLAYLIST_ID = "18254065221";
+
+export type Song = {
+	id: number;
+	name: string;
+	artist: string;
+	cover: string;
+	duration: number;
+};
+
+// 网易云接口不支持跨域，所以只能在构建期抓一次，把曲目列表烤进页面。
+// 运行时音频由浏览器直接向网易云 CDN 取流，不经过本站服务器。
+let songs: Song[] = [];
+let fetchError = "";
+
+try {
+	const res = await fetch(
+		`https://music.163.com/api/v6/playlist/detail?id=${PLAYLIST_ID}&n=1000`,
+		{
+			headers: {
+				"User-Agent":
+					"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+				Referer: "https://music.163.com/",
+			},
+		},
+	);
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	const json = await res.json();
+	const tracks = json?.playlist?.tracks ?? [];
+	songs = tracks.map((t: any) => ({
+		id: t.id,
+		name: t.name ?? "未知曲目",
+		artist: (t.ar ?? []).map((a: any) => a.name).join(" / ") || "未知艺术家",
+		// 接口给的是 http，浏览器会拦混合内容，统一升成 https
+		cover: String(t.al?.picUrl ?? "").replace(/^http:/, "https:"),
+		duration: t.dt ?? 0,
+	}));
+} catch (e) {
+	fetchError = e instanceof Error ? e.message : String(e);
+	console.warn("[MusicPlayer] 歌单抓取失败:", fetchError);
+}
+---
+
+<WidgetLayout
+	id="music-player"
+	name="音乐"
+	class="onload-animation"
+	style="animation-delay: 180ms"
+>
+	{
+		songs.length > 0 ? (
+			<MusicPlayerClient client:load songs={songs} />
+		) : (
+			<p class="text-sm text-[var(--btn-content)] py-2">
+				歌单加载失败{fetchError ? `：${fetchError}` : ""}
+			</p>
+		)
+	}
+</WidgetLayout>
